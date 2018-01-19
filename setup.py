@@ -14,7 +14,7 @@ setup(
     keywords = "matrix creator client zeromq malos",
     url = "http://packages.python.org/an_example_pypi_project",
     packages=find_packages(exclude=['contrib', 'docs', 'tests']),
-    long_description=read('README'),
+    long_description=read('README.md'),
     classifiers=[
         "Development Status :: 3 - Alpha",
         "Intended Audience :: Developers",
