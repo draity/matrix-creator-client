@@ -7,6 +7,8 @@ from matrix_io.proto.malos.v1 import comm_pb2
 from matrix_io.proto.malos.v1 import sense_pb2
 from matrix_io.proto.malos.v1 import io_pb2
 
+from matrix.components.component import Component
+
 _LOGGER = logging.getLogger(__name__)
 ctx = zmq.asyncio.Context.instance()
 
@@ -15,35 +17,25 @@ class Matrix():
     async def create(cls, config):
         self = cls()
         self.config = config
+        self.components = []
         loop = asyncio.get_event_loop()
 
         _LOGGER.warning("Host: %s", 'tcp://{0}'.format(config.host))
+
+        self.components = [Component.create(c, await get_push_fn(config.host, c.port)) for c in config.components]
  
-        sendConfig = await receive_push_fn(config.host, config.components[0].port)
-        
-        # Create a new driver config
-        driver_config_proto = driver_pb2.DriverConfig()
-        driver_config_proto.delay_between_updates = 2.0
-        driver_config_proto.timeout_after_last_ping = 6.0
-        driver_config_proto.humidity.current_temperature = 23
-        sendConfig(driver_config_proto)
+        for c in self.components:
+            c.push(c.configuration_proto)
 
-        loop.create_task(ping_component(config.host, config.components[0].port + 1))
+            if c.needs_keep_alive:
+                loop.create_task(ping_component(config.host, c.port + 1))
 
-        loop.create_task(register_callback(config.host, config.components[0].port + 2, humidity_error_callback))
-        loop.create_task(register_callback(config.host, config.components[0].port + 3, humidity_data_callback))
+            loop.create_task(register_callback(config.host, c.port + 2, c.error_callback))
+
+            if c.data_callback is not None:
+                loop.create_task(register_callback(config.host, c.port + 3, c.data_callback))
 
         return self
-
-def humidity_data_callback(data):
-    """Capture any data and print them to stdout"""
-    humidity_info = sense_pb2.Humidity().FromString(data)
-    print('data: {0}'.format(humidity_info))
-
-
-def humidity_error_callback(error):
-    """Capture any errors and send them to stdout"""
-    print('error: {0}'.format(error.decode('utf-8')))
 
 async def ping_component(host, port, ping = 5):
     s = ctx.socket(zmq.PUSH)
@@ -55,7 +47,7 @@ async def ping_component(host, port, ping = 5):
         # Delay between next ping
         await asyncio.sleep(ping)
 
-async def receive_push_fn(host, port):
+async def get_push_fn(host, port):
     s = ctx.socket(zmq.PUSH)
     s.connect('tcp://{0}:{1}'.format(host, port))
     def sendConfig(proto):
